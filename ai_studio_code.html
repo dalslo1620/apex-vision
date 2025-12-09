@@ -1,0 +1,567 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>APEX Vision 3D - Final V3</title>
+
+    <!-- React & Tailwind -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- Three.js -->
+    <script async src="https://unpkg.com/es-module-shims@1.6.3/dist/es-module-shims.js"></script>
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+          "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+        }
+      }
+    </script>
+
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: #0f172a;
+        }
+
+        #root {
+            width: 100vw;
+            height: 100vh;
+        }
+
+        .canvas-container {
+            width: 100%;
+            height: 100%;
+            display: block;
+            outline: none;
+        }
+
+        select option {
+            background-color: #1e293b;
+            color: white;
+            padding: 10px;
+        }
+
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: #1e293b;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #475569;
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: #64748b;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel" data-type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+        const { useState, useRef, useEffect } = React;
+
+        // 아이콘들
+        const Camera = () => <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" /><circle cx="12" cy="13" r="4" /></svg>;
+        const AlertTriangle = () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m21.73 18-8-14a2 2 0 0 0-3.46 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" /><line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" /></svg>;
+        const CheckCircle = () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" /><polyline points="22 4 12 14.01 9 11.01" /></svg>;
+        const Clock = () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>;
+        const FileText = () => <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" /><polyline points="10 9 9 9 8 9" /></svg>;
+        const Plus = () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>;
+        const Search = () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8" /><path d="m21 21-4.35-4.35" /></svg>;
+        const X = () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>;
+        const BookOpen = () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" /><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" /></svg>;
+
+        const APEXVision = () => {
+            const mountRef = useRef(null);
+            const [selectedPart, setSelectedPart] = useState(null);
+            const [hoveredPart, setHoveredPart] = useState(null);
+            const [searchTerm, setSearchTerm] = useState('');
+            const [showAddRecord, setShowAddRecord] = useState(false);
+
+            const [newRecordData, setNewRecordData] = useState({
+                type: '정기점검',
+                description: ''
+            });
+
+            // 초기 데이터
+            const [maintenanceRecords, setMaintenanceRecords] = useState([
+                { id: 1, part: 'engine-left', partName: '좌측 엔진', date: '2024-11-15', type: '정기점검', status: 'normal', description: '오일 교체 및 압축기 점검 완료', technician: '임서진', amm: 'AMM-72-00-00' },
+                { id: 2, part: 'wing-left', partName: '좌측 날개', date: '2024-12-01', type: '손상발견', status: 'warning', description: '날개 앞전 3번 섹션에 소형 덴트 발견', technician: '임서진', amm: 'AMM-57-11-00' },
+                { id: 3, part: 'fuselage', partName: '동체', date: '2024-10-20', type: '정기점검', status: 'normal', description: '외관 검사 정상', technician: '임서진', amm: 'AMM-53-00-00' }
+            ]);
+
+            const aircraftParts = [
+                { id: 'fuselage', name: '동체' },
+                { id: 'wing-left', name: '좌측 날개' },
+                { id: 'wing-right', name: '우측 날개' },
+                { id: 'engine-left', name: '좌측 엔진' },
+                { id: 'engine-right', name: '우측 엔진' },
+                { id: 'tail', name: '꼬리날개' },
+                { id: 'nose', name: '기수' }
+            ];
+
+            const sceneRef = useRef(null);
+
+            // Three.js Logic
+            useEffect(() => {
+                if (!mountRef.current) return;
+                const width = mountRef.current.clientWidth;
+                const height = mountRef.current.clientHeight;
+                const scene = new THREE.Scene();
+                scene.background = new THREE.Color(0x0f172a);
+                sceneRef.current = scene;
+                const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 1000);
+                camera.position.set(10, 8, 15);
+                const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+                renderer.setSize(width, height);
+                renderer.setPixelRatio(window.devicePixelRatio);
+                renderer.shadowMap.enabled = true;
+                mountRef.current.appendChild(renderer.domElement);
+
+                // D키 디버그
+                const axesHelper = new THREE.AxesHelper(100);
+                axesHelper.visible = false;
+                scene.add(axesHelper);
+                window.addEventListener('keydown', (e) => {
+                    if (e.key.toLowerCase() === 'd') axesHelper.visible = !axesHelper.visible;
+                });
+
+                const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+                scene.add(ambientLight);
+                const dirLight = new THREE.DirectionalLight(0xffffff, 1.5);
+                dirLight.position.set(10, 20, 10);
+                dirLight.castShadow = true;
+                scene.add(dirLight);
+
+                const controls = new OrbitControls(camera, renderer.domElement);
+                controls.enableDamping = true;
+                controls.target.set(0, 0, 0);
+
+                const handleResize = () => {
+                    if (!mountRef.current) return;
+                    const newWidth = mountRef.current.clientWidth;
+                    const newHeight = mountRef.current.clientHeight;
+                    if (newWidth === 0 || newHeight === 0) return;
+                    camera.aspect = newWidth / newHeight;
+                    camera.updateProjectionMatrix();
+                    renderer.setSize(newWidth, newHeight);
+                };
+                window.addEventListener('resize', handleResize);
+                const resizeObserver = new ResizeObserver(() => handleResize());
+                resizeObserver.observe(mountRef.current);
+
+                const group = new THREE.Group();
+                scene.add(group);
+
+                const loader = new GLTFLoader();
+                loader.load('./airplane.glb', (gltf) => {
+                    const model = gltf.scene;
+                    const box = new THREE.Box3().setFromObject(model);
+                    const center = box.getCenter(new THREE.Vector3());
+                    model.position.x += (model.position.x - center.x);
+                    model.position.y += (model.position.y - center.y);
+                    model.position.z += (model.position.z - center.z);
+
+
+                    const manualFix = { x: 4.7, y: -0.6, z: 4.9 };
+                    model.position.x += manualFix.x;
+                    model.position.y += manualFix.y;
+                    model.position.z += manualFix.z;
+                    model.scale.set(18, 18, 18);
+
+                    model.traverse((child) => {
+                        if (child.isMesh) {
+                            child.castShadow = true;
+                            child.receiveShadow = true;
+                            const name = child.name.toLowerCase();
+                            if (name.includes('wing') && name.includes('left')) child.userData.partId = 'wing-left';
+                            else if (name.includes('wing') && name.includes('right')) child.userData.partId = 'wing-right';
+                            else if (name.includes('fuselage') || name.includes('body')) child.userData.partId = 'fuselage';
+                            else if (name.includes('engine') && name.includes('left')) child.userData.partId = 'engine-left';
+                            else if (name.includes('engine') && name.includes('right')) child.userData.partId = 'engine-right';
+                            else if (name.includes('tail')) child.userData.partId = 'tail';
+                            else if (name.includes('nose')) child.userData.partId = 'nose';
+                            if (child.material.color) child.userData.originalColor = child.material.color.getHex();
+                        }
+                    });
+                    group.add(model);
+                }, undefined, (error) => console.error(error));
+
+                const raycaster = new THREE.Raycaster();
+                const mouse = new THREE.Vector2();
+
+                const onMouseMove = (event) => {
+                    const rect = renderer.domElement.getBoundingClientRect();
+                    mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+                    mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+                    raycaster.setFromCamera(mouse, camera);
+                    const intersects = raycaster.intersectObjects(group.children, true);
+                    if (intersects.length > 0) {
+                        const object = intersects[0].object;
+                        if (object.userData.partId) {
+                            setHoveredPart(object.userData.partId);
+                            mountRef.current.style.cursor = 'pointer';
+                        } else {
+                            setHoveredPart(null);
+                            mountRef.current.style.cursor = 'default';
+                        }
+                    } else {
+                        setHoveredPart(null);
+                        mountRef.current.style.cursor = 'default';
+                    }
+                };
+
+                const onClick = () => {
+                    raycaster.setFromCamera(mouse, camera);
+                    const intersects = raycaster.intersectObjects(group.children, true);
+                    if (intersects.length > 0) {
+                        const object = intersects[0].object;
+                        if (object.userData.partId) setSelectedPart(object.userData.partId);
+                        else setSelectedPart(null);
+                    } else setSelectedPart(null);
+                };
+
+                renderer.domElement.addEventListener('mousemove', onMouseMove);
+                renderer.domElement.addEventListener('click', onClick);
+
+                const animate = () => {
+                    requestAnimationFrame(animate);
+                    controls.update();
+                    renderer.render(scene, camera);
+                };
+                animate();
+
+                return () => {
+                    resizeObserver.disconnect();
+                    window.removeEventListener('resize', handleResize);
+                    renderer.domElement.removeEventListener('mousemove', onMouseMove);
+                    renderer.domElement.removeEventListener('click', onClick);
+                    if (mountRef.current) mountRef.current.removeChild(renderer.domElement);
+                    renderer.dispose();
+                };
+            }, []);
+
+            useEffect(() => {
+                if (!sceneRef.current) return;
+                sceneRef.current.traverse((child) => {
+                    if (child.isMesh && child.userData.partId) {
+                        const id = child.userData.partId;
+                        const baseColor = child.userData.originalColor || 0xcccccc;
+                        const severity = getPartSeverity(id);
+
+                        if (id === selectedPart) child.material.color.setHex(0x3b82f6);
+                        else if (id === hoveredPart) child.material.color.setHex(0x93c5fd);
+                        else child.material.color.setHex(baseColor);
+                    }
+                });
+            }, [selectedPart, hoveredPart, maintenanceRecords]);
+
+            const getCurrentSeverity = (type) => {
+                if (type === '긴급수리') return 'critical';
+                if (type === '손상발견') return 'warning';
+                return 'normal';
+            };
+
+            const getPartSeverity = (partId) => {
+                const records = maintenanceRecords.filter(r => r.part === partId);
+                if (records.some(r => r.status === 'critical')) return 'critical';
+                if (records.some(r => r.status === 'warning')) return 'warning';
+                return 'normal';
+            };
+
+
+            const generateAMMCode = (partId) => {
+                let chapter = '00';
+
+                // ATA Chapter 번호 규칙 (필요시 수정)
+                if (partId.includes('engine')) chapter = '72'; // 72: Engine
+                else if (partId.includes('wing')) chapter = '57'; // 57: Wings
+                else if (partId.includes('fuselage')) chapter = '53'; // 53: Fuselage
+                else if (partId.includes('tail')) chapter = '55'; // 55: Stabilizers
+                else if (partId.includes('nose')) chapter = '53';
+                else chapter = '12';
+
+                const section = Math.floor(Math.random() * 90 + 10);
+                return `AMM-${chapter}-${section}-00`;
+            };
+            // ====================================================================
+
+            const handleAddRecord = () => {
+                if (!newRecordData.description) {
+                    alert('내용을 입력해주세요.');
+                    return;
+                }
+
+                const severity = getCurrentSeverity(newRecordData.type);
+
+                const newRecord = {
+                    id: Date.now(),
+                    part: selectedPart,
+                    partName: aircraftParts.find(p => p.id === selectedPart)?.name,
+                    date: new Date().toISOString().split('T')[0],
+                    type: newRecordData.type,
+                    status: severity,
+                    description: newRecordData.description,
+                    technician: '임서진',
+                    amm: generateAMMCode(selectedPart)
+                };
+
+                setMaintenanceRecords([newRecord, ...maintenanceRecords]);
+                setShowAddRecord(false);
+                setNewRecordData({ type: '정기점검', description: '' });
+            };
+
+            const getRecordsForPart = (partId) => maintenanceRecords.filter(r => r.part === partId);
+            const filteredRecords = maintenanceRecords.filter(record =>
+                record.partName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                record.description.toLowerCase().includes(searchTerm.toLowerCase())
+            );
+
+            const getStatusColorClass = (status) => {
+                if (status === 'critical') return 'text-red-500';
+                if (status === 'warning') return 'text-orange-500';
+                return 'text-green-500';
+            };
+
+            const getStatusIcon = (status) => {
+                const colorClass = getStatusColorClass(status);
+                return (
+                    <div className={colorClass}>
+                        {status === 'critical' ? <AlertTriangle /> :
+                            status === 'warning' ? <Clock /> : <CheckCircle />}
+                    </div>
+                );
+            };
+
+            const showAMMProcedure = (ammCode, description) => {
+                alert(`[AMM 매뉴얼 뷰어]\n\n문서 번호: ${ammCode}\n관련 절차: ${description}\n\n상세 정비 절차 문서가 새 창에서 열립니다.`);
+            };
+
+            return (
+                <div className="w-full h-screen flex overflow-hidden">
+                    {/* 좌측 패널 */}
+                    <div className="w-64 bg-slate-800 border-r border-slate-700 p-4 flex flex-col z-10 text-white shrink-0">
+                        <div className="flex items-center gap-2 mb-6">
+                            <Camera />
+                            <h1 className="text-xl font-bold">APEX Vision</h1>
+                        </div>
+                        <div className="flex-1 overflow-y-auto">
+                            <h2 className="text-sm font-semibold text-slate-400 mb-2">부품 목록</h2>
+                            <div className="space-y-1">
+                                {aircraftParts.map(part => {
+                                    const severity = getPartSeverity(part.id);
+                                    let dotColor = 'bg-green-500'; // 기본 초록
+
+                                    if (severity === 'critical') dotColor = 'bg-red-500 animate-pulse';
+                                    else if (severity === 'warning') dotColor = 'bg-orange-500';
+
+                                    return (
+                                        <button
+                                            key={part.id}
+                                            onClick={() => setSelectedPart(part.id)}
+                                            className={`w-full text-left px-3 py-2 rounded-lg transition-colors flex justify-between items-center ${selectedPart === part.id ? 'bg-blue-600' : 'bg-slate-700 hover:bg-slate-600'
+                                                }`}
+                                        >
+                                            <span className="text-sm">{part.name}</span>
+                                            <div className={`w-2.5 h-2.5 rounded-full ${dotColor} shadow-sm`} />
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* 중앙 3D 뷰 */}
+                    <div className="flex-1 relative bg-slate-900 min-w-0">
+                        <div ref={mountRef} className="canvas-container" />
+
+                        {hoveredPart && (
+                            <div className="absolute top-6 left-1/2 transform -translate-x-1/2 bg-slate-800/90 text-white px-4 py-2 rounded-full border border-slate-600 pointer-events-none backdrop-blur-md shadow-lg">
+                                <div className="text-sm font-bold flex items-center gap-2">
+                                    <span className="w-2 h-2 bg-blue-400 rounded-full animate-pulse"></span>
+                                    {aircraftParts.find(p => p.id === hoveredPart)?.name}
+                                </div>
+                            </div>
+                        )}
+
+                        <div className="absolute bottom-6 left-6 bg-slate-800/60 text-white px-4 py-3 rounded-lg border border-slate-600 pointer-events-none text-xs backdrop-blur-sm">
+                            <strong className="text-blue-400 block mb-1">Controls</strong>
+                            좌클릭: 회전 / 우클릭: 이동 / 휠: 줌
+                        </div>
+                    </div>
+
+                    {/* 우측 패널 */}
+                    <div className="w-96 bg-slate-800 border-l border-slate-700 flex flex-col z-10 text-white shrink-0">
+                        <div className="p-4 border-b border-slate-700">
+                            <div className="flex items-center justify-between mb-4">
+                                <h2 className="text-lg font-semibold">
+                                    {selectedPart
+                                        ? aircraftParts.find(p => p.id === selectedPart)?.name
+                                        : '전체 기록'}
+                                </h2>
+                                {selectedPart && (
+                                    <button
+                                        onClick={() => setShowAddRecord(true)}
+                                        className="flex items-center gap-1 px-3 py-1.5 bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
+                                    >
+                                        <Plus /> 기록 추가
+                                    </button>
+                                )}
+                            </div>
+                            <div className="relative">
+                                <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"><Search /></div>
+                                <input
+                                    type="text"
+                                    placeholder="기록 검색..."
+                                    value={searchTerm}
+                                    onChange={(e) => setSearchTerm(e.target.value)}
+                                    className="w-full pl-10 pr-4 py-2 bg-slate-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-white placeholder-slate-400"
+                                />
+                            </div>
+                        </div>
+
+                        <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                            {(selectedPart ? getRecordsForPart(selectedPart) : filteredRecords).length > 0 ? (
+                                (selectedPart ? getRecordsForPart(selectedPart) : filteredRecords).map(record => (
+                                    <div key={record.id} className="bg-slate-700 rounded-lg p-4 border border-slate-600 hover:border-slate-500 transition-colors shadow-sm group">
+                                        <div className="flex items-start justify-between mb-2">
+                                            <div className="flex items-center gap-2">
+                                                {getStatusIcon(record.status)}
+                                                <div>
+                                                    <span className={`font-bold text-sm block ${getStatusColorClass(record.status)}`}>
+                                                        {record.type}
+                                                    </span>
+                                                    {!selectedPart && <span className="text-xs text-slate-400">{record.partName}</span>}
+                                                </div>
+                                            </div>
+                                            <span className="text-xs text-slate-400 font-mono">{record.date}</span>
+                                        </div>
+                                        <p className="text-sm text-slate-300 mb-3 leading-relaxed">{record.description}</p>
+
+                                        {/* [기능 구현] 정상이 아닐 때만(Warning/Critical) AMM 섹션 표시 */}
+                                        {record.status !== 'normal' && (
+                                            <div className="mt-2 p-2 rounded text-xs border bg-slate-800/80 border-slate-500">
+                                                <div className="flex justify-between items-center">
+                                                    <div className="flex items-center gap-2 text-slate-300">
+                                                        <BookOpen />
+                                                        <span className="font-mono font-semibold tracking-wide text-blue-300">
+                                                            {record.amm || 'AMM-XX-XX-XX'}
+                                                        </span>
+                                                    </div>
+                                                    <button
+                                                        onClick={(e) => { e.stopPropagation(); showAMMProcedure(record.amm, record.description); }}
+                                                        className="bg-blue-600/20 hover:bg-blue-600 hover:text-white text-blue-400 px-2 py-1 rounded transition-colors"
+                                                    >
+                                                        절차 보기
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        <div className="text-xs text-slate-500 text-right border-t border-slate-600 pt-2 mt-2">
+                                            작업자: {record.technician}
+                                        </div>
+                                    </div>
+                                ))
+                            ) : (
+                                <div className="flex flex-col items-center justify-center h-40 text-slate-500">
+                                    <FileText />
+                                    <p className="text-sm mt-2">기록이 없습니다.</p>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* 모달 */}
+                    {showAddRecord && (
+                        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 text-white">
+                            <div className="bg-slate-800 rounded-xl p-6 w-96 border border-slate-600 shadow-2xl transform transition-all scale-100">
+                                <div className="flex items-center justify-between mb-6 border-b border-slate-700 pb-4">
+                                    <h3 className="text-lg font-bold">새 정비 기록 작성</h3>
+                                    <button onClick={() => setShowAddRecord(false)} className="text-slate-400 hover:text-white transition-colors">
+                                        <X />
+                                    </button>
+                                </div>
+                                <div className="space-y-4">
+                                    <div>
+                                        <label className="text-xs font-bold text-slate-400 mb-1 block uppercase tracking-wider">대상 부품</label>
+                                        <div className="w-full px-3 py-2 bg-slate-900/50 rounded-lg text-sm text-blue-400 font-bold border border-slate-700">
+                                            {aircraftParts.find(p => p.id === selectedPart)?.name}
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label className="text-xs font-bold text-slate-400 mb-1 block uppercase tracking-wider flex justify-between">
+                                            작업 유형
+                                            {(() => {
+                                                const severity = getCurrentSeverity(newRecordData.type);
+                                                if (severity === 'critical') return <span className="text-[10px] bg-red-500/20 text-red-400 px-2 py-0.5 rounded border border-red-500/30">CRITICAL</span>;
+                                                if (severity === 'warning') return <span className="text-[10px] bg-orange-500/20 text-orange-400 px-2 py-0.5 rounded border border-orange-500/30">WARNING</span>;
+                                                return <span className="text-[10px] bg-green-500/20 text-green-400 px-2 py-0.5 rounded border border-green-500/30">NORMAL</span>;
+                                            })()}
+                                        </label>
+
+                                        <select
+                                            value={newRecordData.type}
+                                            onChange={(e) => setNewRecordData({ ...newRecordData, type: e.target.value })}
+                                            className={`w-full px-3 py-2 bg-slate-700 rounded-lg text-sm outline-none border-2 transition-colors cursor-pointer appearance-none
+                                                ${(() => {
+                                                    const severity = getCurrentSeverity(newRecordData.type);
+                                                    if (severity === 'critical') return 'text-red-400 border-red-500/50 focus:border-red-500';
+                                                    if (severity === 'warning') return 'text-orange-400 border-orange-500/50 focus:border-orange-500';
+                                                    return 'text-green-400 border-green-500/50 focus:border-green-500';
+                                                })()}`}
+                                            style={{ backgroundImage: 'none' }}
+                                        >
+                                            <option value="정기점검" className="text-white bg-slate-700">정기점검 </option>
+                                            <option value="부품교체" className="text-white bg-slate-700">부품교체 </option>
+                                            <option value="손상발견" className="text-white bg-slate-700">손상발견 </option>
+                                            <option value="긴급수리" className="text-white bg-slate-700">긴급수리 </option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="text-xs font-bold text-slate-400 mb-1 block uppercase tracking-wider">상세 내용</label>
+                                        <textarea
+                                            value={newRecordData.description}
+                                            onChange={(e) => setNewRecordData({ ...newRecordData, description: e.target.value })}
+                                            className="w-full px-3 py-2 bg-slate-700 rounded-lg text-sm h-24 text-white placeholder-slate-500 focus:ring-2 focus:ring-blue-500 outline-none resize-none border border-slate-600"
+                                            placeholder="정비 내용을 상세히 입력하세요..."
+                                        />
+                                    </div>
+                                    <button
+                                        onClick={handleAddRecord}
+                                        className="w-full py-3 bg-blue-600 rounded-lg hover:bg-blue-500 transition-colors font-bold shadow-lg flex justify-center items-center gap-2"
+                                    >
+                                        <CheckCircle /> 저장하기
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<APEXVision />);
+    </script>
+</body>
+
+</html>
